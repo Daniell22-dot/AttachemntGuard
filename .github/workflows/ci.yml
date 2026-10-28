@@ -1,0 +1,46 @@
+name: AttachmentGuard CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run static analysis (guard)
+        run: python cli.py "tests\\safe.txt" "tests\\AgentInstaller.cs" "tests\\persister.exe" --json
+
+      - name: Run YARA scan (if yara available)
+        if: success()
+        run: |
+          python -c "
+          try:
+              import yara
+              print('YARA available')
+          except ImportError:
+              print('YARA not available, skipping')
+          "
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: guard-reports
+          path: AttachmentGuard/reports/

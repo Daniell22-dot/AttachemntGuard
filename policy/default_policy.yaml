@@ -1,0 +1,46 @@
+schema_version: 1
+
+max_file_size_mb: 25
+max_archive_depth: 2
+max_archive_entries: 1000
+max_compression_ratio: 100
+
+allowed_extensions:
+  - .pdf
+  - .png
+  - .jpg
+  - .jpeg
+  - .txt
+  - .csv
+  - .docx
+  - .xlsx
+
+blocked_extensions:
+  - .exe
+  - .scr
+  - .msi
+  - .bat
+  - .cmd
+  - .ps1
+  - .vbs
+  - .js
+  - .jar
+  - .hta
+  - .lnk
+
+quarantine_if:
+  - extension_mismatch
+  - double_extension
+  - archive_contains_executable
+  - archive_contains_script
+  - nested_archive
+  - excessive_compression_ratio
+  - excessive_archive_entries
+  - yara_match
+  - known_malicious_hash
+  - reputation_suspicious
+
+block_if:
+  - executable_file_type
+  - script_file_type
+  - known_malicious_hash
