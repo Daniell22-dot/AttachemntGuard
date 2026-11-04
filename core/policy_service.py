@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
-ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.docx', '.xlsx', '.csv', '.txt'}
+ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.docx', '.xlsx', '.csv', '.txt', '.zip'}
 BLOCKED_EXTENSIONS = {'.exe', '.scr', '.msi', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar', '.hta', '.lnk'}
 
 
@@ -27,4 +27,4 @@ def check_size(path, max_mb=25):
         return False, f'Cannot determine size: {e}'
 
 def has_extension(path):
-    return path.suffix.lower() in ALLOWED_EXTENSIONS | BLOCKED_EXTENSIONS
+    return path.suffix.lower() in ALLOWED_EXTENSIONS

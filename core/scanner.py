@@ -70,11 +70,25 @@ def scan_file(path, policy_path=None):
     if zip_result.get('is_zip'):
         for entry in zip_result.get('suspicious', []):
             result['reasons'].append(entry)
+
+        # Quarantine if ZIP contains executable/script entries
+        if any('Executable' in s or 'script' in s.lower() for s in zip_result.get('suspicious', [])):
+            result['reasons'].append('Archive contains executable or script')
+            result['verdict'] = 'QUARANTINE'
+
+        # Quarantine if nested archive detected
         if any('nested' in s.lower() for s in zip_result.get('suspicious', [])):
             result['reasons'].append('Nested archive detected')
             result['verdict'] = 'QUARANTINE'
+
+        # Quarantine if excessive archive entries
         if zip_result.get('total_entries', 0) > 1000:
             result['reasons'].append('Excessive archive entries')
+            result['verdict'] = 'QUARANTINE'
+
+        # Quarantine if ZIP inspection had errors
+        if zip_result.get('errors'):
+            result['reasons'].append('ZIP archive inspection errors')
             result['verdict'] = 'QUARANTINE'
 
     # 6. Static content indicators (persistence patterns)
