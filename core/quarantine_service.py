@@ -1,11 +1,18 @@
 import json
+import logging
 import shutil
 import uuid
 from pathlib import Path
 from typing import Dict, Optional, Any
 
+logger = logging.getLogger(__name__)
 
-def quarantine_file(path, quarantine_dir, scan_result):
+
+def quarantine_file(path, quarantine_dir, scan_result) -> Optional[str]:
+    """Move a file to quarantine with a UUID-based filename and JSON sidecar.
+
+    Returns the destination path on success, or None if quarantine fails.
+    """
     try:
         quarantine_dir.mkdir(parents=True, exist_ok=True)
 
@@ -21,7 +28,7 @@ def quarantine_file(path, quarantine_dir, scan_result):
 
         shutil.move(str(path), str(dest))
 
-        sidecar = {
+        sidecar: Dict[str, object] = {
             'original_filename': orig_str,
             'original_path': str(path),
             'sha256': scan_result.get('sha256'),
@@ -35,5 +42,5 @@ def quarantine_file(path, quarantine_dir, scan_result):
 
         return str(dest)
     except (PermissionError, shutil.Error, OSError) as e:
-        print(f'Quarantine failed for {path}: {{e}}')
+        logger.error('Quarantine failed for %s: %s', path, e)
         return None

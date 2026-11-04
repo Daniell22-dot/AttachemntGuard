@@ -8,13 +8,14 @@ from .policy_service import check_extension, check_size, has_extension
 from .zip_inspector import scan_zip
 
 
-def decide_verdict(current, higher):
+def decide_verdict(current: str, higher: str) -> str:
     order = {'ALLOW': 0, 'WARN': 1, 'QUARANTINE': 2, 'BLOCK': 3}
     if order.get(higher, 0) > order.get(current, 0):
         return higher
     return current
 
-def scan_file(path, policy_path=None):
+
+def scan_file(path) -> Dict[str, Any]:
     result = {
         'schema_version': 1,
         'file': path.name,
@@ -96,12 +97,12 @@ def scan_file(path, policy_path=None):
     try:
         with open(path, 'rb') as f:
             data = f.read(65536)
-        strings = [s.decode('latin-1', errors='ignore') for s in re.findall(rb'[ -~]{4,}', data)]
+        strings = [s.decode('latin-1', errors='ignore') for s in __import__('re').findall(rb'[ -~]{4,}', data)]
         txt = chr(10).join(strings)
-        if re.search(r'schtasks', txt, re.I):
+        if __import__('re').search(r'\schtasks\b', txt, __import__('re').I):
             result['reasons'].append('Uses schtasks (persistence indicator)')
             result['verdict'] = 'BLOCK'
-        if re.search(r'/create.*s+onlogon', txt, re.I):
+        if __import__('re').search(r'/create.*s+onlogon', txt, __import__('re').I):
             result['reasons'].append('/sc onlogon detected (logon persistence)')
             result['verdict'] = 'BLOCK'
     except (PermissionError, OSError):

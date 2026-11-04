@@ -5,7 +5,7 @@ ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.docx', '.xlsx', '.csv', '.txt', '.zip'}
 BLOCKED_EXTENSIONS = {'.exe', '.scr', '.msi', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar', '.hta', '.lnk'}
 
 
-def check_extension(path, allowed=None, blocked=None):
+def check_extension(path, allowed=None, blocked=None) -> Tuple[str, str]:
     allowed = allowed or ALLOWED_EXTENSIONS
     blocked = blocked or BLOCKED_EXTENSIONS
     ext = path.suffix.lower()
@@ -16,7 +16,7 @@ def check_extension(path, allowed=None, blocked=None):
     return 'ALLOW', 'Extension allowed'
 
 
-def check_size(path, max_mb=25):
+def check_size(path, max_mb: int = 25) -> Tuple[bool, str]:
     try:
         size_bytes = path.stat().st_size
         max_bytes = max_mb * 1024 * 1024
@@ -26,5 +26,6 @@ def check_size(path, max_mb=25):
     except (PermissionError, OSError) as e:
         return False, f'Cannot determine size: {e}'
 
-def has_extension(path):
+
+def has_extension(path) -> bool:
     return path.suffix.lower() in ALLOWED_EXTENSIONS
