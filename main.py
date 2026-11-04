@@ -21,6 +21,7 @@ from core.policy_service import check_extension, check_size
 from core.file_type_service import sniff, detect_extension_mismatch
 from core.hash_service import sha256_file, file_info
 from core.report_writer import write_report, append_log
+from core.scan_history import record_scan, init_db
 
 BLOCKED_EXTENSIONS = {
     ".exe", ".scr", ".msi", ".bat", ".cmd",
@@ -203,6 +204,21 @@ class MainWindow(QMainWindow):
 
         # Append log line
         append_log(result, Path("logs/attachmentguard.log"))
+
+        # Record in scan history
+        init_db()
+        record_scan(
+            sha256=sha256,
+            file_name=file_name,
+            file_path=result.get("path", ""),
+            verdict=verdict,
+            detected_mime_type=mime,
+            size_bytes=size,
+            reasons=reasons,
+            scanned_at=result.get("scanned_at", ""),
+            scanner_version=result.get("scanner_version", "0.1.0"),
+            quarantine=result.get("quarantined", False),
+        )
 
     def _on_scan_failed(self, error: str, file_path: str):
         self.status_bar.showMessage(f"Scan failed: {error}")
