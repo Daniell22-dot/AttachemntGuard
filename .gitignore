@@ -1,28 +1,15 @@
-# Python
 __pycache__/
 *.py[cod]
-*.class
-*.pyo
-.Python
-
-# Reports (generated scan results)
-reports/
-
-# Test artifacts
-tests/ziptmp/
-tests/archive-with-exe.zip
-tests/fake-*.exe
-tests/persister.exe
-tests/fakepe.exe
-
-# Optional: quarantine
-quarantine/
-
-# Secrets / keys
+.venv/
+venv/
 .env
-secrets.json
-
-# OS
-.DS_Store
-Thumbs.db
-AGENTS.md
+*.log
+quarantine/*
+!quarantine/.gitkeep
+reports/*
+!reports/.gitkeep
+logs/*
+!logs/.gitkeep
+dist/
+build/
+*.spec
