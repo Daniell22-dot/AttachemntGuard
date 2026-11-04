@@ -13,3 +13,5 @@ logs/*
 dist/
 build/
 *.spec
+*.exe
+AGENTS.md
