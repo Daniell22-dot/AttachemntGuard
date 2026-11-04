@@ -17,13 +17,10 @@ from PyQt6.QtWidgets import (
 
 from workers.scan_worker import ScanWorker
 from ui.scan_table_model import ScanTableModel
-from core.clamav_service import ClamAvService, ClamAvUnavailable
-from core.report_writer import write_report, append_log
-
-# Local policy scanning (extension, size, magic bytes)
 from core.policy_service import check_extension, check_size
 from core.file_type_service import sniff, detect_extension_mismatch
 from core.hash_service import sha256_file, file_info
+from core.report_writer import write_report, append_log
 
 BLOCKED_EXTENSIONS = {
     ".exe", ".scr", ".msi", ".bat", ".cmd",
@@ -100,12 +97,21 @@ class MainWindow(QMainWindow):
         self.folder_btn.clicked.connect(self.select_folder)
         layout.addWidget(self.folder_btn)
 
+        self.stop_btn = QPushButton("Stop Monitoring")
+        self.stop_btn.clicked.connect(self._stop_monitoring)
+        self.stop_btn.setEnabled(False)
+        layout.addWidget(self.stop_btn)
+
         self.folder_label = QLabel("No folder selected")
         layout.addWidget(self.folder_label)
 
         self.table_model = ScanTableModel()
         self.table_view = QTableView()
         self.table_view.setModel(self.table_model)
+        # Enable selection for open report functionality
+        self.table_view.selectionModel().selectionChanged.connect(
+            self._on_selection_changed
+        )
         layout.addWidget(self.table_view)
 
         self.status_bar = QStatusBar()
@@ -146,6 +152,8 @@ class MainWindow(QMainWindow):
             lambda p: self.scan_manager.start_scan(p)
         )
 
+        self.stop_btn.setEnabled(True)
+
     def _scan_existing_files(self, folder_path: str):
         path = Path(folder_path)
         for item in sorted(path.iterdir()):
@@ -167,7 +175,6 @@ class MainWindow(QMainWindow):
         reasons = result.get("reasons", [])
         size = result.get("size_bytes", 0)
         mime = result.get("detected_mime_type", "unknown")
-        clamav = result.get("clamav", {})
 
         # Add row to table
         row = [
@@ -201,31 +208,17 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Scan failed: {error}")
         self.progress_bar.setValue(0)
 
-    def _quarantine_file(self, result: dict):
-        from core.quarantine_service import quarantine_file
-
-        path = result.get("path", "")
-        verdict = result.get("verdict", "")
-
-        quarantined_path = quarantine_file(Path(path), Path("quarantine"), result)
-        if quarantined_path:
-            self.quarantine_label.setText(
-                f"Quarantine: {quarantined_path}"
-            )
-            QMessageBox.information(
-                self,
-                "Quarantined",
-                f"File was quarantined:\n{Path(path).name}\n\n"
-                f"Reason: {'; '.join(result.get('reasons', []))}"
-            )
-        else:
-            self.quarantine_label.setText(
-                f"Quarantine: quarantine/ (error occurred)"
-            )
+    def _stop_monitoring(self):
+        self.scan_manager.stop()
+        self.stop_btn.setEnabled(False)
+        self.folder_label.setText("No folder selected")
+        if self._watcher.paths():
+            self._watcher.removePath(self._watcher.paths()[0])
+        self._watcher.fileChanged.disconnect()
 
     def closeEvent(self, event):
         # Clean shutdown of any running scan
-        self.scan_manager.stop()
+        self._stop_monitoring()
         super().closeEvent(event)
 
 
