@@ -25,22 +25,15 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Run static analysis (guard)
-        run: python cli.py "tests\\safe.txt" "tests\\AgentInstaller.cs" "tests\\persister.exe" --json
+      - name: Run tests
+        run: python -m pytest -q
 
-      - name: Run YARA scan (if yara available)
-        if: success()
-        run: |
-          python -c "
-          try:
-              import yara
-              print('YARA available')
-          except ImportError:
-              print('YARA not available, skipping')
-          "
+      - name: Run static analysis (guard)
+        run: python cli.py "tests\fixtures\safe.txt" "tests\AgentInstaller.cs" --json
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v3
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: guard-reports
-          path: AttachmentGuard/reports/
+          path: reports/

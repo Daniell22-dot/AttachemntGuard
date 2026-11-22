@@ -34,7 +34,7 @@ def fake_image_jext(fixtures_dir: Path) -> Path:
 
 @pytest.fixture
 def detected_sample(fixtures_dir: Path) -> Path:
-    return fixtures_dir / "clamav-test-sample.bin"
+    return fixtures_dir / "fake-image.jpg.exe"
 
 
 @pytest.fixture

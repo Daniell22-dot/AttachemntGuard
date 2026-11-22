@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 BAD_EXTS = {'.exe', '.scr', '.msi', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar', '.hta'}
 
 
-def scan_zip(path, max_entries=1000, max_depth=2):
+def scan_zip(path, max_entries=1000, max_depth=2, max_compression_ratio=100):
     result = {
         'is_zip': False,
         'entries': [],
@@ -52,6 +52,12 @@ def scan_zip(path, max_entries=1000, max_depth=2):
                     if ext == '.zip':
                         result['suspicious'].append(f'Nested archive: {name}')
 
+                    if e.compress_size > 0 and e.file_size / e.compress_size > max_compression_ratio:
+                        result['suspicious'].append(f'Excessive compression ratio: {name}')
+
+            if depth > max_depth:
+                result['suspicious'].append(f'Archive nesting depth exceeds policy: {depth}')
+
             return result
 
         # Fallback: check for ZIP magic bytes (PK\x03\x04 or PK\x05\x06 or PK\x07\x08)
@@ -94,6 +100,12 @@ def scan_zip(path, max_entries=1000, max_depth=2):
 
                         if ext == '.zip':
                             result['suspicious'].append(f'Nested archive: {name}')
+
+                        if e.compress_size > 0 and e.file_size / e.compress_size > max_compression_ratio:
+                            result['suspicious'].append(f'Excessive compression ratio: {name}')
+
+                    if depth > max_depth:
+                        result['suspicious'].append(f'Archive nesting depth exceeds policy: {depth}')
             except zipfile.BadZipFile as e:
                 result['errors'].append(f'Corrupt ZIP: {e}')
             except RuntimeError as e:

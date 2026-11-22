@@ -13,7 +13,7 @@ def test_safe_txt_returns_allow():
 
 def test_fake_pdf_exe_returns_block():
     result = scan_file(Path("tests/fixtures/fake-image.jpg.exe"))
-    assert result["verdict"] in ("BLOCK", "QUARANTINE")
+    assert result["verdict"] == "BLOCK"
 
 
 def test_zip_with_exe_returns_quarantine():

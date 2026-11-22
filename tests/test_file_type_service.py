@@ -15,8 +15,7 @@ def test_detects_png_magic_bytes():
 
 def test_detects_pe_mz_magic_bytes():
     result = detect_magic_bytes(Path("tests/fixtures/fake-image.jpg.exe"))
-    # The file starts with \xff\xd8\xff (JPEG magic), not MZ
-    # But it has .exe extension, so mismatch should be detected
+    assert result[0] == "image/jpeg"
 
 
 def test_detects_zip_magic_bytes():
@@ -37,8 +36,7 @@ def test_sniff_returns_pdf():
 
 def test_sniff_returns_exe_for_exe_with_wrong_ext():
     info = sniff(Path("tests/fixtures/fake-image.jpg.exe"))
-    # The file has JPEG-ish magic bytes \xff\xd8\xff
-    assert info["mime"] in ("image/jpeg", "unknown")
+    assert info["mime"] == "image/jpeg"
 
 
 def test_detects_extension_mismatch_exe_with_wrong_mime():

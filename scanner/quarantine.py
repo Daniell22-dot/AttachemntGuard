@@ -1,22 +1,15 @@
-import os
-import shutil
-import uuid
-import json
-from datetime import datetime
+import sys
+from pathlib import Path
 
-def quarantine_file(path: str, quarantine_dir: str, report: dict) -> str:
-    os.makedirs(quarantine_dir, exist_ok=True)
-    base = os.path.basename(path)
-    ext = os.path.splitext(base)[1]
-    qname = f"{uuid.uuid4()}{ext}.quarantined"
-    qpath = os.path.join(quarantine_dir, qname)
-    shutil.move(path, qpath)
-    meta = {
-        'original_path': path,
-        'quarantined_as': qpath,
-        'quarantined_at': datetime.utcnow().isoformat() + 'Z',
-        'report': report
-    }
-    with open(qpath + '.meta.json', 'w', encoding='utf-8') as f:
-        json.dump(meta, f, indent=2)
-    return qpath
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core.quarantine_service import quarantine_file as _quarantine_file
+
+
+def quarantine_file(path, quarantine_dir, report):
+    destination = _quarantine_file(Path(path), Path(quarantine_dir), report)
+    if destination is None:
+        raise RuntimeError("quarantine move failed")
+    return destination

@@ -1,92 +1,81 @@
-#!/usr/bin/env python3
 import argparse
 import json
-import os
 import sys
-from datetime import datetime, timezone
+from pathlib import Path
 
-# add scanner to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scanner'))
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from hashutil import file_info
-from filetypes import sniff
-from policy import extension_policy
-from persistence import scan_file_text, scan_file_binary_strings
-from zipscan import scan_zip
-from quarantine import quarantine_file
-from yara_scan import scan_with_yara
+from core.quarantine_service import quarantine_file
+from core.report_writer import write_report
+from core.scanner import scan_file
 
-def scan_path(path: str, quarantine_dir: str, rules_dir: str) -> dict:
-    report = {
-        'file': os.path.abspath(path),
-        'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-        'info': {}, 'sniff': {}, 'extension_policy': {}, 'persistence_hits': [], 'zip_scan': {}, 'yara': [],
-        'verdict': 'ALLOW', 'reasons': []
-    }
-    try:
-        report['info'] = file_info(path)
-    except Exception as e:
-        report['reasons'].append(f'file_info_error: {e}')
-        report['verdict'] = 'QUARANTINE'
-        return report
 
-    report['sniff'] = sniff(path)
-    v,r = extension_policy(path)
-    report['extension_policy'] = {'verdict':v,'reason':r}
-    if v=='BLOCK': report['verdict']='BLOCK'; report['reasons'].append(r)
-    elif v=='WARN' and report['verdict']=='ALLOW': report['verdict']='WARN'; report['reasons'].append(r)
+def scan_path(path, quarantine_dir, rules_dir, policy=None, quarantine=False):
+    result = scan_file(path, rules_dir=rules_dir, policy=policy)
 
-    hits = sorted(set(scan_file_text(path)+scan_file_binary_strings(path)))
-    report['persistence_hits']=hits
-    if hits:
-        if report['verdict']!='BLOCK': report['verdict']='BLOCK'
-        report['reasons'].append(f'Persistence indicators: {", ".join(hits)}')
+    if quarantine and result.get("verdict") in {"BLOCK", "QUARANTINE"}:
+        source = Path(result.get("file_path", result.get("path", path)))
+        try:
+            quarantined_to = quarantine_file(source, Path(quarantine_dir), result)
+        except Exception as exc:
+            result["reasons"].append(f"quarantine_error: {exc}")
+        else:
+            if quarantined_to:
+                result["quarantined"] = True
+                result["quarantine_path"] = quarantined_to
+                result["quarantined_to"] = quarantined_to
+            else:
+                result["reasons"].append("quarantine_error: move failed")
 
-    z = scan_zip(path)
-    report['zip_scan']=z
-    if z.get('is_zip'):
-        if z.get('suspicious'):
-            if report['verdict']!='BLOCK': report['verdict']='BLOCK'
-            for s in z['suspicious']: report['reasons'].append(s)
-        for e in z.get('errors',[]): report['reasons'].append(f'zip_error: {e}')
+    return result
 
-    base=os.path.basename(path); ext=report['sniff'].get('ext')
-    if base.count('.')>=2 and ext in {'.exe','.scr','.bat','.cmd','.ps1','.js','.hta'}:
-        report['verdict']='BLOCK'; report['reasons'].append(f'Double extension suspicious: {base}')
 
-    yr = scan_with_yara(path, rules_dir)
-    report['yara']=yr
-    for m in yr:
-        if isinstance(m,dict) and m.get('rule'):
-            if report['verdict']!='BLOCK': report['verdict']='BLOCK'
-            report['reasons'].append(f"YARA match: {m['rule']} (severity={m.get('meta',{}).get('severity','high')})")
-    return report
+def build_parser():
+    parser = argparse.ArgumentParser(description="AttachmentGuard CLI")
+    parser.add_argument("paths", nargs="+")
+    parser.add_argument("--quarantine-dir", default=str(ROOT / "quarantine"))
+    parser.add_argument("--report-dir", default=str(ROOT / "reports"))
+    parser.add_argument("--rules-dir", default=str(ROOT / "rules"))
+    parser.add_argument("--quarantine", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    return parser
 
-def main():
-    ap=argparse.ArgumentParser(description='AttachmentGuard CLI')
-    ap.add_argument('paths', nargs='+')
-    ap.add_argument('--quarantine-dir', default=os.path.join(os.path.dirname(__file__),'quarantine'))
-    ap.add_argument('--report-dir', default=os.path.join(os.path.dirname(__file__),'reports'))
-    ap.add_argument('--rules-dir', default=os.path.join(os.path.dirname(__file__),'rules'))
-    ap.add_argument('--quarantine', action='store_true')
-    ap.add_argument('--json', action='store_true')
-    args=ap.parse_args()
-    qdir=os.path.abspath(args.quarantine_dir); rdir=os.path.abspath(args.report_dir); rules_dir=os.path.abspath(args.rules_dir)
-    os.makedirs(rdir,exist_ok=True)
-    results=[]
-    for p in args.paths:
-        rep = scan_path(p,qdir,rules_dir)
-        ts=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        out=os.path.join(rdir,f"{os.path.basename(p)}.{ts}.json")
-        with open(out,'w',encoding='utf-8') as f: json.dump(rep,f,indent=2)
-        if args.quarantine and rep['verdict'] in {'BLOCK','QUARANTINE'}:
-            try:
-                qp=quarantine_file(p,qdir,rep); rep['quarantined_to']=qp
-            except Exception as e: rep['reasons'].append(f'quarantine_error:{e}')
-        results.append(rep)
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    rules_dir = Path(args.rules_dir)
+    report_dir = Path(args.report_dir)
+    quarantine_dir = Path(args.quarantine_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    for path_value in args.paths:
+        report = scan_path(
+            path_value,
+            quarantine_dir,
+            rules_dir,
+            quarantine=args.quarantine,
+        )
+        report_path = write_report(report, report_dir)
+        if report_path:
+            report["report_path"] = report_path
+        results.append(report)
+
         if not args.json:
-            print(f"[{rep['verdict']}] {rep['file']} sha256={rep['info'].get('sha256')} - {', '.join(rep['reasons']) or 'ok'}")
-    if args.json: print(json.dumps(results,indent=2))
-    sys.exit(0)
+            print(
+                f"[{report['verdict']}] {report.get('file_path', path_value)} "
+                f"sha256={report.get('sha256')} - "
+                f"{', '.join(report['reasons']) or 'ok'}"
+            )
 
-if __name__=='__main__': main()
+    if args.json:
+        print(json.dumps(results, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

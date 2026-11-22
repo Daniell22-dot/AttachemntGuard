@@ -1,12 +1,8 @@
-import os
+import sys
+from pathlib import Path
 
-ALLOWED = {'.pdf', '.png', '.jpg', '.jpeg', '.docx', '.xlsx', '.csv', '.txt'}
-BLOCK_EXT = {'.exe', '.scr', '.msi', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar', '.hta'}
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-def extension_policy(path: str) -> tuple:
-    ext = os.path.splitext(path)[1].lower()
-    if ext in BLOCK_EXT:
-        return 'BLOCK', f'Blocked extension: {ext}'
-    if ext not in ALLOWED:
-        return 'WARN', f'Extension not in allowlist: {ext}'
-    return 'ALLOW', 'Extension allowed'
+from core.policy_service import check_extension as extension_policy

@@ -1,12 +1,12 @@
-# AttachmentGuard (MVP)
+# AttachmentGuard
 
 ![Yara](https://img.shields.io/badge/YARA-rule-important?style=for-the-badge) ![Bulwark](https://img.shields.io/badge/Bulwark-website-important?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3.13-important?style=for-the-badge) ![PHP2Shell](https://img.shields.io/badge/PHP2Shell-security-important?style=for-the-badge) ![C-Sharp](https://img.shields.io/badge/C%23-.NET-important?style=for-the-badge)
 
 ## Purpose
 
-AttachmentGuard is a **static file-analysis gate** that never executes a file. It is designed to be the first defensive checkpoint for any file a user or system encounters — especially files downloaded from the internet, received as attachments, or found on removable media.
+AttachmentGuard is a local, defensive static file-analysis gate. It never executes a scanned file. It is designed to be the first checkpoint for downloads, email attachments, and files found on removable media.
 
-It belongs to a different layer than the C# agent (`AgentInstaller.cs` / `Sentinel.Agent.exe`). While the agent handles **installation persistence** (creating a scheduled task to start at logon), AttachmentGuard performs **pre-execution inspection** — determining whether a file is safe, suspicious, or dangerous before it is ever run.
+It belongs to a different layer than the C# agent (`AgentInstaller.cs` / `Sentinel.Agent.exe`). While the agent handles installation persistence, AttachmentGuard performs pre-execution inspection and explains every decision.
 
 ## Verdicts
 
@@ -14,6 +14,8 @@ It belongs to a different layer than the C# agent (`AgentInstaller.cs` / `Sentin
 - `WARN` — Potentially risky; user should confirm
 - `QUARANTINE` — Suspicious; isolate for review
 - `BLOCK` — Dangerous or policy-violating
+
+Verdict precedence is `BLOCK > QUARANTINE > WARN > ALLOW`. A later check can raise a verdict but never lower it.
 
 ## How It Fits the Security Ecosystem
 
@@ -24,79 +26,101 @@ It belongs to a different layer than the C# agent (`AgentInstaller.cs` / `Sentin
 | **AttachmentGuard** | Standalone Python file gate | Inspects files statically; outputs verdict + report; can be called from C# or run independently |
 | **PHP2Shell** | Critical vulnerability research | The initial trigger that prompted this work; now covered by the rule and report |
 
-## Usage
+## Entry Points
+
+Both entry points use the same `core/` engine, policy file, and report format.
+
+### CLI / static gate
 
 ```bash
+python cli.py <file> [more-files...] [--quarantine] [--json]
 python scanner/guard.py <file> [--quarantine] [--json]
 ```
 
-- `--quarantine`: Move suspicious/blocked files to the `quarantine/` folder with metadata
-- `--json`: Output JSON instead of human-readable summary
+- `--quarantine` moves `BLOCK`/`QUARANTINE` files into `quarantine/` with a UUID-based name and `.json` sidecar.
+- `--json` prints the scan results as JSON.
+- Reports are written to `reports/<yyyy-mm-dd>/<sha256>.json`.
 
-## MVP Features
+### Desktop GUI
 
-1. **SHA-256 hash** + size computation
-2. **Extension allowlist/blocklist** (`.exe`, `.scr`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.jar`, `.hta` blocked by default; `.pdf`, `.png`, `.jpg`, `.docx`, `.xlsx`, `.csv`, `.txt` allowed)
-3. **Magic-byte sniffing** (detect real file type regardless of extension; e.g., `invoice.pdf.exe` → `BLOCK` for double‑extension)
-4. **ZIP inspection** (list entries without extracting; detect executables/scripts inside ZIPs; enforce entry-count, compression-ratio, and nesting limits)
-5. **Persistence indicator scan** (search source text and binary strings for: `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `%~f0`, `SENTINEL-Agent`, `--run-agent`)
-6. **Quarantine** (move blocked/quarantined files to `quarantine/` with a UUID‑based name + `.meta.json` containing original path, verdict, reasons, timestamp)
-7. **JSON report** in `reports/` with file hash, size, verdict, matched rules, timestamp, and quarantine path if applicable
+```bash
+python main.py
+```
 
-## Test Set (example files to create)
+Select a folder to monitor. New and existing files are scanned in a worker thread, shown in a table, quarantined when required, and recorded in the local scan history.
 
-- `tests/safe.txt`, `tests/safe.pdf` (or dummy files)
-- `tests/fake-image.jpg.exe` — double‑extension EXE masquerade
-- `tests/archive-with-exe.zip` — ZIP containing `bad.exe`
-- `tests/AgentInstaller.cs` — source code (will flag persistence strings like `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `SENTINEL-Agent`)
+## Shared Engine
 
-`AgentInstaller.cs` is treated as an **indicator sample** (source code), not a compiled PE. A compiled binary with the same patterns would be caught by magic bytes + YARA.
+`core/` is the only implementation of scanning logic. `scanner/` modules are compatibility wrappers for older imports. The shared services provide:
 
-## How to Integrate
+- SHA-256 hashing and file size checks
+- Extension allow/block policy from `policy/default_policy.yaml`
+- Magic-byte file-type detection and extension mismatch checks
+- Non-extracting ZIP inspection with entry-count, depth, double-extension, and compression-ratio checks
+- Persistence indicator scanning for `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `%~f0`, `SENTINEL-Agent`, and `--run-agent`
+- Optional YARA rule scanning from `rules/`
+- Optional ClamAV scanning in the desktop worker
+- Quarantine, JSON reports, logs, and scan history
 
-- **As a Python CLI**: `python scanner/guard.py <file>`
-- **From C#**: `Process.Start("python", "\"" + guardPath + "\" \"" + filePath + "\" --json")` and parse the JSON output
-- **As a GitHub Action** (see `.github/workflows/ci.yml`) — runs guard against test files on every push
+If an enabled YARA, ZIP, or ClamAV check cannot complete, the result fails closed as `QUARANTINE` rather than `ALLOW`.
+
+## Test Set
+
+Tracked fixtures live in `tests/fixtures/`. Useful samples include:
+
+- `safe.txt`, `safe.pdf`, `safe.png` for allowed files
+- `fake-image.jpg.exe` for double-extension and extension-mismatch detection
+- `archive-with-exe.zip`, `archive-nested.zip`, `path-traversal.zip`, `corrupt.zip` for ZIP checks
+- `AgentInstaller.cs` for persistence indicators
+
+`AgentInstaller.cs` is an indicator sample (source code), not a compiled PE.
+
+## Usage From C#
+
+```csharp
+Process.Start("python", "\"" + guardPath + "\" \"" + filePath + "\" --json")
+```
+
+Parse the JSON verdict, reasons, hash, and report path from stdout.
 
 ## Directory Layout
 
-```
+```text
 AttachmentGuard/
-├── scanner/          # Core engine (hash, magic, policy, persistence, ZIP, quarantine, YARA)
-├── rules/            # YARA persistence rules (persistence.yar)
-├── cli.py            # CLI entry-point
-├── tests/            # Test fixtures
-├── quarantine/       # Isolated suspicious files
-├── reports/          # Generated JSON reports
+├── main.py                 # PyQt6 desktop entry point
+├── cli.py                  # CLI/static-gate entry point
+├── scanner/                # Compatibility wrappers around core/
+├── core/                   # Shared scanning and policy services
+├── workers/                # PyQt worker and scan manager
+├── ui/                     # Qt table model
+├── rules/                  # YARA rules
+├── policy/                 # Shared policy YAML
+├── tests/                  # Tests and fixtures
+├── quarantine/             # Isolated suspicious files
+├── reports/                # Generated JSON reports
 ├── .gitignore
 ├── README.md
-├── requirements.txt
-└── setup.py (optional)
+├── AGENTS.md
+└── requirements.txt
 ```
 
-## How This Differs from AgentInstaller.cs
+## Development
 
-| Aspect | AgentInstaller.cs | AttachmentGuard |
-|---|---|---|
-| **Purpose** | Creates Windows scheduled‑task persistence | Static file‑gate; never executes the file |
-| **What it does** | `schtasks /create /sc onlogon /tr "<exe>" /f` | Hash, magic‑bytes, extension policy, ZIP inspection, persistence‑indicator heuristics, YARA |
-| **Output** | Task created; agent starts at logon | Verdict (`ALLOW`/`WARN`/`QUARANTINE`/`BLOCK`) + JSON report |
-| **When used** | During agent deployment / installer | During file ingestion / email attachment scanning / media scanning |
-| **Coupling** | Part of the C# agent solution | Independent Python project; can be used without touching the C# codebase |
+Install dependencies from the project virtual environment, then run:
+
+```bash
+python -m pytest -q
+python cli.py "tests/fixtures/safe.txt" "tests/AgentInstaller.cs" --json
+```
+
+Dependencies are `yara-python`, `PyYAML`, `PyQt6`, and `pytest`. YARA rules are optional; if `rules/` has no `.yar` or `.yara` files, the shared engine skips YARA.
 
 ## Limitations
 
-- Does **not** execute files — it only inspects them
-- YARA rules are hand‑crafted and tuned for the current sample set; new patterns may need rule updates
-- ZIP inspection looks at entry names and basic content; it does not emulate the ZIP contents
-- Persistence heuristics are based on source‑code and binary‑string patterns; obfuscated code may evade detection
-
-## Contact & Contributing
-
-- Add new YARA rules under `rules/`
-- Add new test fixtures under `tests/`
-- Extend `scanner/policy.py` for additional extension rules
-- Fork, then submit a pull request
+- Does not execute files; it only inspects them.
+- YARA rules are hand-crafted and tuned for the current sample set.
+- ZIP inspection looks at entry names and metadata; it does not emulate archive contents.
+- Persistence heuristics are based on source-code and binary-string patterns; obfuscated code may evade detection.
 
 ---
 

@@ -29,12 +29,11 @@ def test_flags_nested_zip():
     assert any("Nested" in s for s in result["suspicious"])
 
 
-def test_rejects_path_traversal_entries():
-    # Create a ZIP with path traversal entry
-    import zipfile
-    with zipfile.ZipFile("tests/fixtures/path-traversal.zip", "w") as zf:
+def test_rejects_path_traversal_entries(tmp_path):
+    target = tmp_path / "path-traversal.zip"
+    with zipfile.ZipFile(target, "w") as zf:
         zf.writestr("../../../etc/passwd", "traversal data")
-    result = scan_zip(Path("tests/fixtures/path-traversal.zip"))
+    result = scan_zip(target)
     assert any("Suspicious path" in s for s in result["suspicious"])
 
 
@@ -44,8 +43,6 @@ def test_handles_corrupt_zip():
     assert any("Corrupt" in e for e in result["errors"])
 
 
-def test_handles_password_protected_zip():
-    # Create a password-protected ZIP using clamscan-style
-    # For now, just test that RuntimeError is caught
-    result = scan_zip(Path("tests/fixtures/archive-with-exe.zip"))
-    # Should not crash; may have errors depending on ZIP readability
+def test_handles_unreadable_zip_without_crashing():
+    result = scan_zip(Path("tests/fixtures/corrupt.zip"))
+    assert result["errors"]

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from core.clamav_service import ClamAvService, ClamAvResult, ClamAvUnavailable
 
 
@@ -92,9 +94,12 @@ def test_clamav_error_does_not_return_allow(safe_txt, monkeypatch):
 
     def fake_run(self, executable, file_path, engine):
         return ClamAvResult(
+            engine=engine,
             exit_code=2,
             verdict="QUARANTINE",
+            signature=None,
             raw_output="Unexpected scanner error",
+            timed_out=False,
         )
 
     monkeypatch.setattr(ClamAvService, "_run", fake_run)

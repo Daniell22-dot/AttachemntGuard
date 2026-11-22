@@ -1,13 +1,8 @@
-import hashlib
-import os
+import sys
+from pathlib import Path
 
-def sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1024*1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-def file_info(path: str) -> dict:
-    st = os.stat(path)
-    return {'path': path, 'size': st.st_size, 'sha256': sha256_file(path)}
+from core.hash_service import file_info, sha256_file

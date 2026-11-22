@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-RESULTS_DB = Path("scanner_history.db")
+RESULTS_DB = Path(__file__).resolve().parents[1] / "scan_history.db"
 
 
 def _get_connection(db_path: Path = RESULTS_DB) -> sqlite3.Connection:
