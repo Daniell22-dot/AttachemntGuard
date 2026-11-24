@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.clamav_service import build_clamav_service
-from core.quarantine_service import quarantine_file
+from core.quarantine_service import quarantine_file, restore_quarantined_file
 from core.report_writer import write_report
 from core.scanner import scan_file
 
@@ -42,7 +42,7 @@ def scan_path(
 
 def build_parser():
     parser = argparse.ArgumentParser(description="AttachmentGuard CLI")
-    parser.add_argument("paths", nargs="+")
+    parser.add_argument("paths", nargs="*")
     parser.add_argument("--quarantine-dir", default=str(ROOT / "quarantine"))
     parser.add_argument("--report-dir", default=str(ROOT / "reports"))
     parser.add_argument("--rules-dir", default=str(ROOT / "rules"))
@@ -57,13 +57,57 @@ def build_parser():
         default=str(ROOT / "config.ini"),
         help="Path to the ClamAV configuration file",
     )
+    parser.add_argument("--restore", metavar="UUID", help="Restore a quarantined file by UUID")
+    parser.add_argument("--restore-to", metavar="PATH", help="Destination override for --restore")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Back up an existing destination before --restore",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview --restore without changing files",
+    )
     parser.add_argument("--json", action="store_true")
     return parser
+
+
+def handle_restore_command(args) -> int | None:
+    if not args.restore:
+        return None
+    try:
+        result = restore_quarantined_file(
+            args.restore,
+            quarantine_dir=args.quarantine_dir,
+            destination_override=args.restore_to,
+            overwrite=args.overwrite,
+            dry_run=args.dry_run,
+        )
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc), "quarantine_id": args.restore}))
+        else:
+            print(f"[ERROR] Restore failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        prefix = "[DRY-RUN] Would restore" if result.dry_run else "Restored"
+        print(f"{prefix} {result.quarantine_id} -> {result.restored_to} (sha256={result.sha256})")
+    return 0
 
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    restore_code = handle_restore_command(args)
+    if restore_code is not None:
+        return restore_code
+    if not args.paths:
+        parser.error("at least one path is required unless --restore is used")
 
     rules_dir = Path(args.rules_dir)
     report_dir = Path(args.report_dir)

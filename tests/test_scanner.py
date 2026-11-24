@@ -1,8 +1,6 @@
 from pathlib import Path
 
 from core.scanner import scan_file, decide_verdict
-from core.policy_service import check_extension
-from core.file_type_service import detect_extension_mismatch
 
 
 def test_safe_txt_returns_allow():
@@ -43,3 +41,18 @@ def test_extension_mismark_flagged():
     # Should detect extension mismatch
     has_mismatch = any("extension does not match" in r for r in result["reasons"])
     assert has_mismatch
+
+
+def test_scan_result_includes_heuristic_details():
+    result = scan_file(Path("tests/fixtures/safe.txt"))
+
+    assert result["deobfuscation"]["byte_length"] > 0
+    assert isinstance(result["deobfuscation"]["findings"], list)
+    assert "archive_inspection" in result
+
+
+def test_scan_result_includes_archive_member_details():
+    result = scan_file(Path("tests/fixtures/archive-safe.zip"))
+
+    assert result["archive_inspection"]["inspected_members"] >= 0
+    assert isinstance(result["archive_inspection"]["findings"], list)

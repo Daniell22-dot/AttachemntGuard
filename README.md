@@ -35,11 +35,14 @@ Both entry points use the same `core/` engine, policy file, and report format.
 ```bash
 python cli.py <file> [more-files...] [--quarantine] [--clamav] [--json]
 python scanner/guard.py <file> [--quarantine] [--clamav] [--json]
+python cli.py --restore <uuid> [--restore-to PATH] [--overwrite] [--dry-run] [--json]
 ```
 
 - `--quarantine` moves `BLOCK`/`QUARANTINE` files into `quarantine/` with a UUID-based name and `.json` sidecar.
+- `--restore` verifies the payload SHA-256 against its sidecar before restoring; the sidecar is retained and updated as evidence.
+- `--restore-to` overrides the recorded original path. `--overwrite` backs up an existing destination. `--dry-run` previews without moving files.
 - `--clamav` enables the optional ClamAV check for this run.
-- `--json` prints the scan results as JSON.
+- `--json` prints scan or restore results as JSON.
 - Reports are written to `reports/<yyyy-mm-dd>/<sha256>.json`.
 
 ### Desktop GUI
@@ -58,7 +61,10 @@ Select a folder to monitor. New and existing files are scanned in a worker threa
 - Extension allow/block policy from `policy/default_policy.yaml`
 - Magic-byte file-type detection and extension mismatch checks
 - Non-extracting ZIP inspection with entry-count, depth, double-extension, and compression-ratio checks
+- Bounded in-memory ZIP member inspection: text/script persistence indicators, base64 UTF-8/UTF-16LE decoding, Shannon entropy, OOXML media skipping, and nested archives
 - Persistence indicator scanning for `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `%~f0`, `SENTINEL-Agent`, and `--run-agent`
+- Policy-driven deobfuscation thresholds and custom rules in `policy/default_policy.yaml`
+- Explicit SHA-256-verified quarantine restore by UUID; sidecars are never purged automatically
 - Optional YARA rule scanning from `rules/`
 - Optional ClamAV scanning in the shared core pipeline (GUI and CLI)
 - Quarantine, JSON reports, logs, and scan history
@@ -80,6 +86,41 @@ missing. Detections produce `BLOCK`, and errors or timeouts produce `QUARANTINE`
 a locally blocked file is never downgraded. `config.ini` is gitignored — never
 commit local paths or settings.
 
+## Bounded heuristics and ZIP members
+
+Raw files are sampled statically (up to 1 MiB) and ZIP payloads are read with a
+32 MiB cap. The shared engine scans for persistence strings, decodes bounded
+base64 UTF-8/UTF-16LE segments, and flags high Shannon entropy using thresholds
+from `policy/default_policy.yaml`. Entropy checks skip known container/media
+magic so compressed or image formats are not misclassified by raw byte entropy.
+
+ZIP members are inspected in memory only, never extracted to disk. Text/script
+members are checked for the same indicators; OOXML media assets are skipped;
+nested ZIPs are inspected up to `max_archive_depth`. Findings are attributed to
+the full member path (for example, `inner.zip>payload.ps1`). Corrupt, encrypted,
+oversized, or unreadable members fail closed as `QUARANTINE`.
+
+Scan results include `deobfuscation` and `archive_inspection` objects with
+findings and the verdict each check recommended. Higher-severity verdicts are
+never downgraded by later checks.
+
+## Quarantine restore
+
+Restoration is explicit and auditable. Find the UUID in the quarantine sidecar
+filename or scan result, then run:
+
+```bash
+python cli.py --restore <uuid> --json
+python cli.py --restore <uuid> --dry-run --json
+python cli.py --restore <uuid> --restore-to "C:\Users\me\Downloads\file.txt" --overwrite --json
+```
+
+The payload SHA-256 must match the sidecar. Restores to the recorded original
+path by default, refuse destinations inside `quarantine/`, and require
+`--overwrite` when the target exists; an existing target is backed up, not
+deleted. The sidecar stays in quarantine with `restored_at_utc`,
+`restored_to`, and `restore_verified_sha256`. There is no automatic purge.
+
 ## Test Set
 
 Tracked fixtures live in `tests/fixtures/`. Useful samples include:
@@ -90,6 +131,8 @@ Tracked fixtures live in `tests/fixtures/`. Useful samples include:
 - `AgentInstaller.cs` for persistence indicators
 
 `AgentInstaller.cs` is an indicator sample (source code), not a compiled PE.
+Additional tests cover deobfuscation heuristics, ZIP member inspection,
+quarantine restore, and CLI restore output.
 
 ## Usage From C#
 
@@ -136,8 +179,9 @@ Dependencies are `yara-python`, `PyYAML`, `PyQt6`, and `pytest`. YARA rules are 
 
 - Does not execute files; it only inspects them.
 - YARA rules are hand-crafted and tuned for the current sample set.
-- ZIP inspection looks at entry names and metadata; it does not emulate archive contents.
-- Persistence heuristics are based on source-code and binary-string patterns; obfuscated code may evade detection.
+- ZIP inspection reads bounded member bytes in memory; it does not extract or execute archive contents.
+- Persistence heuristics cover common source/binary strings and bounded base64 UTF-8/UTF-16LE; other packing or encryption may evade detection.
+- Restore is deliberately manual and requires UUID plus SHA-256 verification; there is no automatic cleanup.
 
 ---
 

@@ -44,3 +44,26 @@ block_if:
   - executable_file_type
   - script_file_type
   - known_malicious_hash
+
+deobfuscation:
+  enabled: true
+  min_entropy_sample_bytes: 256
+  entropy_warn_threshold: 7.2
+  entropy_quarantine_threshold: 7.75
+  skip_entropy_for_containers: true
+  entropy_exempt_formats:
+    - zip_or_ooxml
+    - gzip
+    - bzip2
+    - xz
+    - zstd
+    - 7zip
+    - rar
+    - pdf
+    - png
+    - jpeg
+    - gif
+  max_decoded_segments: 32
+  max_member_bytes: 2097152
+  max_total_uncompressed: 16777216
+  max_members: 100

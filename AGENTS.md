@@ -21,8 +21,9 @@ Both entry points are supported and share the same engine:
 - `main.py` is the PyQt6 desktop entry point.
 - `cli.py` and `scanner/guard.py` are the CLI/static-gate entry points.
 - `core/` is the single source of truth for policy, hashing, magic-byte
-  detection, ZIP inspection, persistence indicators, YARA, quarantine,
-  reporting, scan history, and verdicts.
+  detection, ZIP inspection, bounded archive member inspection, deobfuscation
+  heuristics, persistence indicators, YARA, quarantine, reporting, scan
+  history, and verdicts.
 - `scanner/` contains compatibility wrappers around `core/`; it must not
   implement a second scanning pipeline.
 - `README.md` is the user-facing documentation for both entry points.
@@ -76,6 +77,8 @@ Implement these before adding anything else:
 11. Display scan results in the GUI.
 12. Support safe cancellation and application shutdown.
 13. Optional ClamAV check, off by default and fail-closed.
+14. Bounded deobfuscation and entropy heuristics for raw files and ZIP members.
+15. Explicit, SHA-256-verified quarantine restore by UUID.
 
 ### Later capabilities
 
@@ -114,6 +117,8 @@ attachmentguard/
 │   ├── hash_service.py
 │   ├── file_type_service.py
 │   ├── zip_inspector.py
+│   ├── archive_inspector.py
+│   ├── deobfuscation_heuristics.py
 │   ├── policy_service.py
 │   ├── quarantine_service.py
 │   └── report_writer.py
@@ -404,9 +409,15 @@ For each ZIP:
 - Reject paths containing `..`, absolute paths, drive letters, or suspicious
   control characters.
 - Do not follow symlink-like or unusual entries.
+- Inspect text and script members in memory for persistence indicators,
+  bounded base64 UTF-8/UTF-16LE decoding, and high Shannon entropy. Skip
+  OOXML media assets and honor the policy member/size/depth limits.
+- Inspect nested ZIP members within `max_archive_depth` and attribute every
+  finding to its full member path.
 
-If inspection fails because the archive is corrupt, password-protected, or
-unreadable, return `QUARANTINE` with a clear reason. Do not return `ALLOW`.
+If inspection fails because the archive is corrupt, password-protected,
+encrypted, oversized, or unreadable, return `QUARANTINE` with a clear reason.
+Do not return `ALLOW`.
 
 ## Quarantine rules
 
@@ -423,6 +434,19 @@ Quarantined files must:
 
 Use atomic move operations where possible. If quarantine fails, retain the
 original file, mark the scan `QUARANTINE_FAILED`, and log the error.
+
+### Quarantine restore
+
+Restore is an explicit operational action, never an automatic cleanup:
+
+- Require a UUID and its JSON sidecar.
+- Verify the quarantined payload SHA-256 against the sidecar before moving.
+- Restore to the recorded original path unless an explicit destination is
+  supplied; refuse destinations inside the quarantine directory.
+- Require an explicit overwrite flag; back up the existing destination instead
+  of deleting it.
+- Retain and update the sidecar with restore time, destination, and verified
+  hash. Never automatically purge quarantined evidence.
 
 ## Reports
 
@@ -610,6 +634,22 @@ Required tests:
 - Handles corrupt ZIP.
 - Handles password-protected ZIP.
 
+### Deobfuscation heuristics
+
+- Loads thresholds, exempt formats, and custom rules from policy.
+- Detects persistence patterns in raw text and binary samples.
+- Decodes bounded base64 UTF-8 and UTF-16LE segments and scans them.
+- Flags high Shannon entropy above configured thresholds.
+- Merges verdicts without downgrading a higher verdict.
+
+### Archive member inspection
+
+- Allows safe text members inside a ZIP.
+- Attributes encoded/script findings to the full member path.
+- Inspects nested ZIP members within the configured depth.
+- Fails closed on corrupt, encrypted, oversized, or unreadable members.
+- Skips OOXML media assets.
+
 ### Scanner integration
 
 - `safe.txt` returns `ALLOW`.
@@ -626,6 +666,16 @@ Required tests:
 - Timeouts, missing databases, and unavailable executables produce
   `QUARANTINE` with a human-readable reason.
 - The GUI worker and CLI both use the shared `core/` merge logic.
+
+### Quarantine restore and CLI
+
+- Restores only with a valid UUID and matching sidecar.
+- Rejects tampered payloads with a SHA-256 mismatch.
+- Supports dry-run and destination overrides.
+- Refuses destinations inside the quarantine directory.
+- Backs up an existing destination when overwrite is explicitly allowed.
+- Keeps and updates the sidecar instead of deleting evidence.
+- CLI emits structured JSON for restore actions.
 
 ### Threading tests
 

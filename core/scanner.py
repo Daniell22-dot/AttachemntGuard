@@ -2,7 +2,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .archive_inspector import inspect_zip_members_for_persistence
 from .clamav_service import ClamAvUnavailable
+from .deobfuscation_heuristics import (
+    Verdict,
+    analyze_content_for_persistence,
+    load_deobfuscation_config_from_policy,
+)
 from .file_type_service import detect_extension_mismatch, sniff
 from .hash_service import file_info
 from .persistence_service import scan_file_binary_strings, scan_file_text
@@ -10,7 +16,9 @@ from .policy_service import check_extension, check_size, load_policy
 from .yara_service import scan_with_yara
 from .zip_inspector import scan_zip
 
-SCANNER_VERSION = "0.2.0"
+SCANNER_VERSION = "0.3.0"
+MAX_STATIC_SAMPLE_BYTES = 1024 * 1024
+MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 
 
 def decide_verdict(current: str, higher: str) -> str:
@@ -53,6 +61,76 @@ def _apply_clamav(result: Dict[str, Any], clamav, path: Path) -> None:
         _elevate(result, "QUARANTINE", reason)
 
 
+def _read_bounded(path: Path, limit: int) -> bytes:
+    with path.open("rb") as handle:
+        return handle.read(limit)
+
+
+def _apply_heuristics(
+    result: Dict[str, Any],
+    path: Path,
+    policy: Dict[str, Any],
+) -> None:
+    config = load_deobfuscation_config_from_policy(policy=policy)
+    if not config.enabled:
+        return
+
+    try:
+        sample = _read_bounded(path, MAX_STATIC_SAMPLE_BYTES)
+    except OSError as exc:
+        _elevate(result, "QUARANTINE", f"Static heuristic read failed: {type(exc).__name__}")
+        return
+
+    report = analyze_content_for_persistence(
+        sample,
+        initial_verdict=Verdict.from_str(result["verdict"]),
+        entropy_warn_threshold=config.entropy_warn_threshold,
+        entropy_quarantine_threshold=config.entropy_quarantine_threshold,
+        min_entropy_sample_bytes=config.min_entropy_sample_bytes,
+        skip_entropy_for_containers=config.skip_entropy_for_containers,
+        allowed_container_formats=config.entropy_exempt_formats,
+        patterns=config.patterns,
+        max_decoded_segments=config.max_decoded_segments,
+    )
+    result["deobfuscation"] = {
+        "shannon_entropy": report.shannon_entropy,
+        "byte_length": report.byte_length,
+        "skipped_entropy_reason": report.skipped_entropy_reason,
+        "decoded_segments": len(report.decoded_segments),
+        "findings": [finding.to_dict() for finding in report.findings],
+    }
+    for finding in report.findings:
+        _elevate(result, finding.verdict.name, f"Static indicator: {finding.description}")
+
+    if not result["zip_scan"].get("is_zip"):
+        return
+
+    try:
+        archive_bytes = (
+            sample
+            if len(sample) < MAX_STATIC_SAMPLE_BYTES
+            else _read_bounded(path, MAX_ARCHIVE_BYTES)
+        )
+    except OSError as exc:
+        _elevate(result, "QUARANTINE", f"Archive member read failed: {type(exc).__name__}")
+        return
+
+    archive = inspect_zip_members_for_persistence(
+        archive_bytes,
+        initial_verdict=Verdict.from_str(result["verdict"]),
+        config=config,
+        max_depth=int(policy.get("max_archive_depth", 2)),
+    )
+    result["archive_inspection"] = {
+        "verdict": archive.verdict.name,
+        "inspected_members": archive.inspected_members,
+        "skipped_members": archive.skipped_members,
+        "findings": [finding.to_dict() for finding in archive.findings],
+    }
+    for finding in archive.findings:
+        _elevate(result, finding.verdict.name, f"Archive indicator: {finding.description}")
+
+
 def scan_file(
     path,
     rules_dir: Optional[str] = None,
@@ -82,6 +160,8 @@ def scan_file(
         "extension_policy": {},
         "persistence_hits": [],
         "zip_scan": {},
+        "deobfuscation": {},
+        "archive_inspection": {},
         "yara": [],
         "clamav": {},
     }
@@ -144,6 +224,8 @@ def scan_file(
     result["persistence_hits"] = hits
     if hits:
         _elevate(result, "BLOCK", f"Persistence indicators: {', '.join(hits)}")
+
+    _apply_heuristics(result, path, policy)
 
     if rules_dir:
         yara_result = scan_with_yara(path, rules_dir)
