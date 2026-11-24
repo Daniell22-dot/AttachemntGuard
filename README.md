@@ -1,5 +1,7 @@
 # AttachmentGuard
 
+![YARA](https://img.shields.io/badge/YARA-integrated-blue?style=for-the-badge) ![PyQt6](https://img.shields.io/badge/PyQt6-desktop-green?style=for-the-badge) ![ClamAV](https://img.shields.io/badge/ClamAV-optional-orange?style=for-the-badge)
+
 AttachmentGuard checks files before you open them. It watches a folder you choose, scans new or changed files without executing them, and explains every decision in plain language.
 
 Suspicious files are moved to quarantine, not deleted. The app runs locally; it does not upload your files or need an account.
