@@ -200,7 +200,7 @@ def test_table_model_exposes_report_and_warning_color(qapp):
 
 def test_main_window_opens_selected_report(qapp, monkeypatch, tmp_path):
     manager = ScanManager()
-    window = MainWindow(root=tmp_path, scan_manager=manager)
+    window = MainWindow(root=tmp_path, scan_manager=manager, data_dir=tmp_path / "data")
     report = tmp_path / "reports" / "report.json"
     report.parent.mkdir(parents=True)
     report.write_text("{}", encoding="utf-8")
@@ -229,7 +229,7 @@ def test_main_window_opens_selected_report(qapp, monkeypatch, tmp_path):
 
 def test_main_window_watches_and_enqueues_new_files(qapp, tmp_path):
     manager = ScanManager()
-    window = MainWindow(root=tmp_path, scan_manager=manager)
+    window = MainWindow(root=tmp_path, scan_manager=manager, data_dir=tmp_path / "data")
     folder = tmp_path / "downloads"
     folder.mkdir()
     sample = folder / "new.txt"
@@ -247,7 +247,7 @@ def test_main_window_watches_and_enqueues_new_files(qapp, tmp_path):
 
 def test_quarantined_path_is_not_rescanned(qapp, tmp_path):
     manager = ScanManager()
-    window = MainWindow(root=tmp_path, scan_manager=manager)
+    window = MainWindow(root=tmp_path, scan_manager=manager, data_dir=tmp_path / "data")
     sample = tmp_path / "bad.exe"
     enqueued = []
     manager.start_scan = enqueued.append
@@ -265,4 +265,15 @@ def test_quarantined_path_is_not_rescanned(qapp, tmp_path):
     window._on_folder_scan_finished(str(tmp_path), [str(sample)])
 
     assert enqueued == []
+    window.close()
+
+
+def test_main_window_writes_to_configured_data_dir(qapp, tmp_path):
+    manager = ScanManager()
+    data_dir = tmp_path / "appdata"
+    window = MainWindow(root=tmp_path, scan_manager=manager, data_dir=data_dir)
+
+    assert window.reports_dir == data_dir / "reports"
+    assert window.quarantine_dir == data_dir / "quarantine"
+    assert window.log_path == data_dir / "logs" / "attachmentguard.log"
     window.close()

@@ -1,189 +1,131 @@
 # AttachmentGuard
 
-![Yara](https://img.shields.io/badge/YARA-rule-important?style=for-the-badge) ![Bulwark](https://img.shields.io/badge/Bulwark-website-important?style=for-the-badge) ![Python](https://img.shields.io/badge/Python-3.13-important?style=for-the-badge) ![PHP2Shell](https://img.shields.io/badge/PHP2Shell-security-important?style=for-the-badge) ![C-Sharp](https://img.shields.io/badge/C%23-.NET-important?style=for-the-badge)
+AttachmentGuard checks files before you open them. It watches a folder you choose, scans new or changed files without executing them, and explains every decision in plain language.
 
-## Purpose
+Suspicious files are moved to quarantine, not deleted. The app runs locally; it does not upload your files or need an account.
 
-AttachmentGuard is a local, defensive static file-analysis gate. It never executes a scanned file. It is designed to be the first checkpoint for downloads, email attachments, and files found on removable media.
+## Who it is for
 
-It belongs to a different layer than the C# agent (`AgentInstaller.cs` / `Sentinel.Agent.exe`). While the agent handles installation persistence, AttachmentGuard performs pre-execution inspection and explains every decision.
+AttachmentGuard is a first checkpoint for:
 
-## Verdicts
+- Downloads from a browser
+- Email attachments
+- Files from USB drives or shared folders
+- Any folder where unexpected files appear
 
-- `ALLOW` — Safe under current policy
-- `WARN` — Potentially risky; user should confirm
-- `QUARANTINE` — Suspicious; isolate for review
-- `BLOCK` — Dangerous or policy-violating
+It is a defensive file gate, not a replacement for antivirus or endpoint security.
 
-Verdict precedence is `BLOCK > QUARANTINE > WARN > ALLOW`. A later check can raise a verdict but never lower it.
+## Get started on Windows
 
-## How It Fits the Security Ecosystem
+The release is built for 64-bit Windows. Python is not required.
 
-| Project | Role | Relationship |
+1. Download `AttachmentGuard-v0.3.0-windows.zip` from the project release or the person who shared it with you.
+2. Unzip it into a folder you can write to, such as Downloads. Keep all files in the folder together.
+3. Double-click `AttachmentGuard.exe`.
+4. Click **Select Folder to Monitor** and choose the folder to watch.
+5. Leave the window open while you want monitoring to continue.
+
+Windows may show a SmartScreen warning for a newly downloaded app. Only run releases you trust.
+
+## What you will see
+
+The results table shows each file, its verdict, size, SHA-256 hash, detected type, reasons, scan time, and whether it was quarantined.
+
+| Verdict | Meaning | What to do |
 |---|---|---|
-| **Bulwark** | Static website + data pipeline | Provides vulnerability assessment pages, ATT&CK coverage maps, and PHP2Shell detection resources |
-| **Sentinel** | C# endpoint agent | Handles installation persistence, event collection, detection, reporting, and response |
-| **AttachmentGuard** | Standalone Python file gate | Inspects files statically; outputs verdict + report; can be called from C# or run independently |
-| **PHP2Shell** | Critical vulnerability research | The initial trigger that prompted this work; now covered by the rule and report |
+| `ALLOW` | No policy problem found | Usually safe to open, but stay alert |
+| `WARN` | Something needs review | Check the report before opening |
+| `QUARANTINE` | Suspicious; file was isolated | Do not open it until reviewed |
+| `BLOCK` | Dangerous or blocked by policy | Do not open it |
 
-## Entry Points
+A blocked or quarantined row is highlighted. Select a row and click **Open Report**, or double-click the row, to read the full explanation.
 
-Both entry points use the same `core/` engine, policy file, and report format.
+**Stop Monitoring** cancels queued and active scans safely. Closing the window also stops monitoring and finishes the current report before the app exits.
 
-### CLI / static gate
+## What it checks
 
-```bash
-python cli.py <file> [more-files...] [--quarantine] [--clamav] [--json]
-python scanner/guard.py <file> [--quarantine] [--clamav] [--json]
-python cli.py --restore <uuid> [--restore-to PATH] [--overwrite] [--dry-run] [--json]
-```
+AttachmentGuard never opens or runs a scanned file. It inspects files statically:
 
-- `--quarantine` moves `BLOCK`/`QUARANTINE` files into `quarantine/` with a UUID-based name and `.json` sidecar.
-- `--restore` verifies the payload SHA-256 against its sidecar before restoring; the sidecar is retained and updated as evidence.
-- `--restore-to` overrides the recorded original path. `--overwrite` backs up an existing destination. `--dry-run` previews without moving files.
-- `--clamav` enables the optional ClamAV check for this run.
-- `--json` prints scan or restore results as JSON.
-- Reports are written to `reports/<yyyy-mm-dd>/<sha256>.json`.
+- SHA-256 hash and file size
+- Allowed and blocked file extensions
+- Real file type from magic bytes, not just the extension
+- Double extensions such as `invoice.pdf.exe`
+- ZIP archives without extracting them
+- Executable, script, nested-archive, path-traversal, and compression-ratio risks
+- Encoded or obfuscated persistence indicators in text, scripts, and archive members
+- Optional YARA rules included with the release
+- Optional ClamAV scan, when configured
 
-### Desktop GUI
+If a check cannot complete for a risky file, the app fails closed: it quarantines the file instead of allowing it.
 
-```bash
-python main.py
-```
+## Where files go
 
-Select a folder to monitor. Existing files and later changes are enumerated in a worker thread, queued, and scanned by at most two concurrent workers. Results appear in a table with verdict color highlighting, quarantine state, and an Open Report button or double-click action. Stop Monitoring cancels queued and active scans safely. Quarantine moves, report/log writes, and history writes finish in the worker thread before the UI is updated.
+AttachmentGuard stores its data outside the program folder so it works when installed in a protected location.
 
-## Shared Engine
+Press `Win + R`, paste `%LOCALAPPDATA%\AttachmentGuard`, and press Enter. You will find:
 
-`core/` is the only implementation of scanning logic. `scanner/` modules are compatibility wrappers for older imports. The shared services provide:
+- `quarantine/` — isolated files and JSON evidence sidecars
+- `reports/` — one JSON report per scan, organized by date
+- `logs/` — concise verdict log
+- `scan_history.db` — local scan history
+- `config.ini` — optional settings, if you create one
 
-- SHA-256 hashing and file size checks
-- Extension allow/block policy from `policy/default_policy.yaml`
-- Magic-byte file-type detection and extension mismatch checks
-- Non-extracting ZIP inspection with entry-count, depth, double-extension, and compression-ratio checks
-- Bounded in-memory ZIP member inspection: text/script persistence indicators, base64 UTF-8/UTF-16LE decoding, Shannon entropy, OOXML media skipping, and nested archives
-- Persistence indicator scanning for `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `%~f0`, `SENTINEL-Agent`, and `--run-agent`
-- Policy-driven deobfuscation thresholds and custom rules in `policy/default_policy.yaml`
-- Explicit SHA-256-verified quarantine restore by UUID; sidecars are never purged automatically
-- Optional YARA rule scanning from `rules/`
-- Optional ClamAV scanning in the shared core pipeline (GUI and CLI)
-- Quarantine, JSON reports, logs, and scan history
+Quarantined files are never deleted automatically. You can leave them there until you decide what to do.
 
-If an enabled YARA, ZIP, or ClamAV check cannot complete, the result fails closed as `QUARANTINE` rather than `ALLOW`.
+## If a file is quarantined
 
-## Optional ClamAV check
+Do not open the file from quarantine. Open its report first and read the reasons.
 
-ClamAV is installed separately from Python and is off by default. Enable it for
-one CLI run with `--clamav`, or for both entry points by copying
-`config.ini.example` to `config.ini` and setting `enabled = true`. Leave the two
-executable paths empty to auto-discover `clamdscan`/`clamscan` on PATH and in the
-standard Windows install directory; `clamdscan` is preferred, with `clamscan` as
-a fallback.
+Restoring is intentionally an advanced administrator action because it reverses a safety decision. The included `AttachmentGuardCLI.exe` can restore a file only when you provide its UUID, the SHA-256 matches its sidecar, and the destination is safe. Most users should leave suspicious files quarantined until they have reviewed the report or asked an administrator.
 
-Virus signatures must be installed separately with `freshclam`. Without them,
-the check fails closed with `QUARANTINE` and explains that signatures are
-missing. Detections produce `BLOCK`, and errors or timeouts produce `QUARANTINE`;
-a locally blocked file is never downgraded. `config.ini` is gitignored — never
-commit local paths or settings.
+## Privacy
 
-## Bounded heuristics and ZIP members
+- Scanning is local.
+- No file contents are uploaded.
+- There is no account, telemetry, or network lookup by default.
+- Reports contain filenames, paths, hashes, verdicts, and reasons; they do not contain API keys.
+- The app does not execute, extract, or open scanned files.
 
-Raw files are sampled statically (up to 1 MiB) and ZIP payloads are read with a
-32 MiB cap. The shared engine scans for persistence strings, decodes bounded
-base64 UTF-8/UTF-16LE segments, and flags high Shannon entropy using thresholds
-from `policy/default_policy.yaml`. Entropy checks skip known container/media
-magic so compressed or image formats are not misclassified by raw byte entropy.
+## Optional antivirus check
 
-ZIP members are inspected in memory only, never extracted to disk. Text/script
-members are checked for the same indicators; OOXML media assets are skipped;
-nested ZIPs are inspected up to `max_archive_depth`. Findings are attributed to
-the full member path (for example, `inner.zip>payload.ps1`). Corrupt, encrypted,
-oversized, or unreadable members fail closed as `QUARANTINE`.
+ClamAV is off by default. To enable it:
 
-Scan results include `deobfuscation` and `archive_inspection` objects with
-findings and the verdict each check recommended. Higher-severity verdicts are
-never downgraded by later checks.
+1. Install ClamAV for Windows separately and update its signatures with `freshclam`.
+2. Copy `config.ini.example` from the release folder to `%LOCALAPPDATA%\AttachmentGuard\config.ini`.
+3. Set `enabled = true` in that file.
+4. Restart AttachmentGuard.
 
-## Quarantine restore
-
-Restoration is explicit and auditable. Find the UUID in the quarantine sidecar
-filename or scan result, then run:
-
-```bash
-python cli.py --restore <uuid> --json
-python cli.py --restore <uuid> --dry-run --json
-python cli.py --restore <uuid> --restore-to "C:\Users\me\Downloads\file.txt" --overwrite --json
-```
-
-The payload SHA-256 must match the sidecar. Restores to the recorded original
-path by default, refuse destinations inside `quarantine/`, and require
-`--overwrite` when the target exists; an existing target is backed up, not
-deleted. The sidecar stays in quarantine with `restored_at_utc`,
-`restored_to`, and `restore_verified_sha256`. There is no automatic purge.
-
-## Test Set
-
-Tracked fixtures live in `tests/fixtures/`. Useful samples include:
-
-- `safe.txt`, `safe.pdf`, `safe.png` for allowed files
-- `fake-image.jpg.exe` for double-extension and extension-mismatch detection
-- `archive-with-exe.zip`, `archive-nested.zip`, `path-traversal.zip`, `corrupt.zip` for ZIP checks
-- `AgentInstaller.cs` for persistence indicators
-
-`AgentInstaller.cs` is an indicator sample (source code), not a compiled PE.
-Additional tests cover deobfuscation heuristics, ZIP member inspection,
-quarantine restore, CLI restore output, GUI table/report actions, worker
-signals, cancellation, and manager cleanup.
-
-## Usage From C#
-
-```csharp
-Process.Start("python", "\"" + guardPath + "\" \"" + filePath + "\" --json")
-```
-
-Parse the JSON verdict, reasons, hash, and report path from stdout.
-
-## Directory Layout
-
-```text
-AttachmentGuard/
-├── main.py                 # PyQt6 desktop entry point
-├── cli.py                  # CLI/static-gate entry point
-├── scanner/                # Compatibility wrappers around core/
-├── core/                   # Shared scanning and policy services
-├── workers/                # PyQt worker and scan manager
-├── ui/                     # Qt table model
-├── rules/                  # YARA rules
-├── policy/                 # Shared policy YAML
-├── tests/                  # Tests and fixtures
-├── quarantine/             # Isolated suspicious files
-├── reports/                # Generated JSON reports
-├── .gitignore
-├── README.md
-├── AGENTS.md
-├── config.ini.example
-└── requirements.txt
-```
-
-## Development
-
-Install dependencies from the project virtual environment, then run:
-
-```bash
-python -m pytest -q
-python cli.py "tests/fixtures/safe.txt" "tests/AgentInstaller.cs" --json
-```
-
-Dependencies are `yara-python`, `PyYAML`, `PyQt6`, and `pytest`. YARA rules are optional; if `rules/` has no `.yar` or `.yara` files, the shared engine skips YARA.
+Leave the executable paths empty to auto-discover `clamdscan` or `clamscan`. A detection blocks the file. Missing signatures, timeouts, or scanner errors quarantine the file with an explanation; a local block is never downgraded.
 
 ## Limitations
 
-- Does not execute files; it only inspects them.
-- YARA rules are hand-crafted and tuned for the current sample set.
-- ZIP inspection reads bounded member bytes in memory; it does not extract or execute archive contents.
-- Persistence heuristics cover common source/binary strings and bounded base64 UTF-8/UTF-16LE; other packing or encryption may evade detection.
-- Restore is deliberately manual and requires UUID plus SHA-256 verification; there is no automatic cleanup.
+- AttachmentGuard does not execute files, so packed or encrypted malware may evade static checks.
+- YARA and heuristic rules can produce false positives; read the report before restoring.
+- ZIP members are inspected in memory with size and depth limits, not extracted.
+- The app is a decision-support gate, not a guarantee that any file is safe.
 
----
+## Advanced command-line use
 
-**Built with Python 3.13 · YARA 4.5.4 · Powered by the same security mindset that drives Sentinel and Bulwark.**
+`AttachmentGuardCLI.exe` is included for administrators and automated checks. It uses the same scanning engine as the desktop app.
+
+```text
+AttachmentGuardCLI.exe "C:\Downloads\report.pdf"
+AttachmentGuardCLI.exe "C:\Downloads\report.pdf" --json
+AttachmentGuardCLI.exe --restore <uuid> --dry-run
+AttachmentGuardCLI.exe --restore <uuid>
+```
+
+These commands are optional. Desktop users do not need them.
+
+## For developers
+
+You only need this section when working from source.
+
+```bash
+pip install -r requirements.txt
+python main.py
+python cli.py "tests/fixtures/safe.txt" --json
+python -m pytest -q
+```
+
+The source build uses PyQt6, YARA, PyYAML, and pytest. Released ZIPs are built with PyInstaller and already include everything needed to run.

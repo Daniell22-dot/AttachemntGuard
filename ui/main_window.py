@@ -19,17 +19,24 @@ from PyQt6.QtWidgets import (
 )
 
 from core.clamav_service import build_clamav_service
+from core.paths import resource_dir, user_data_dir
 from ui.scan_table_model import ScanTableModel
 from workers.scan_manager import ScanManager
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, root: Optional[Path] = None, scan_manager: Optional[ScanManager] = None):
+    def __init__(
+        self,
+        root: Optional[Path] = None,
+        scan_manager: Optional[ScanManager] = None,
+        data_dir: Optional[Path] = None,
+    ):
         super().__init__()
-        self.root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
-        self.reports_dir = self.root / "reports"
-        self.quarantine_dir = self.root / "quarantine"
-        self.log_path = self.root / "logs" / "attachmentguard.log"
+        self.root = Path(root) if root is not None else resource_dir()
+        self.data_dir = Path(data_dir) if data_dir is not None else user_data_dir()
+        self.reports_dir = self.data_dir / "reports"
+        self.quarantine_dir = self.data_dir / "quarantine"
+        self.log_path = self.data_dir / "logs" / "attachmentguard.log"
         self._known_files: set[str] = set()
         self._retired_paths: set[str] = set()
 
@@ -83,7 +90,10 @@ class MainWindow(QMainWindow):
 
         clamav = getattr(scan_manager, "clamav", None) if scan_manager is not None else None
         if scan_manager is None:
-            clamav = build_clamav_service(self.root / "config.ini")
+            config_path = self.data_dir / "config.ini"
+            if not config_path.exists():
+                config_path = self.root / "config.ini"
+            clamav = build_clamav_service(config_path)
         clamav_status = "enabled" if clamav is not None else "disabled"
         self.clamav_label = QLabel(f"ClamAV: {clamav_status}")
         layout.addWidget(self.clamav_label)

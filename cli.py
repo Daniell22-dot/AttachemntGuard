@@ -3,14 +3,18 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+_BOOTSTRAP_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
 
 from core.clamav_service import build_clamav_service
+from core.paths import resource_dir, user_data_dir
 from core.quarantine_service import quarantine_file, restore_quarantined_file
 from core.report_writer import write_report
 from core.scanner import scan_file
+
+ROOT = resource_dir()
+DATA_DIR = user_data_dir()
 
 
 def scan_path(
@@ -43,8 +47,8 @@ def scan_path(
 def build_parser():
     parser = argparse.ArgumentParser(description="AttachmentGuard CLI")
     parser.add_argument("paths", nargs="*")
-    parser.add_argument("--quarantine-dir", default=str(ROOT / "quarantine"))
-    parser.add_argument("--report-dir", default=str(ROOT / "reports"))
+    parser.add_argument("--quarantine-dir", default=str(DATA_DIR / "quarantine"))
+    parser.add_argument("--report-dir", default=str(DATA_DIR / "reports"))
     parser.add_argument("--rules-dir", default=str(ROOT / "rules"))
     parser.add_argument("--quarantine", action="store_true")
     parser.add_argument(
@@ -54,7 +58,7 @@ def build_parser():
     )
     parser.add_argument(
         "--clamav-config",
-        default=str(ROOT / "config.ini"),
+        default=str(DATA_DIR / "config.ini"),
         help="Path to the ClamAV configuration file",
     )
     parser.add_argument("--restore", metavar="UUID", help="Restore a quarantined file by UUID")
