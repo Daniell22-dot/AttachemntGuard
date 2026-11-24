@@ -131,3 +131,7 @@ python -m pytest -q
 ```
 
 The source build uses PyQt6, YARA, PyYAML, and pytest. Released ZIPs are built with PyInstaller and already include everything needed to run.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See `LICENSE` for the full text.
