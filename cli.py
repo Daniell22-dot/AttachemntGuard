@@ -7,13 +7,21 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.clamav_service import build_clamav_service
 from core.quarantine_service import quarantine_file
 from core.report_writer import write_report
 from core.scanner import scan_file
 
 
-def scan_path(path, quarantine_dir, rules_dir, policy=None, quarantine=False):
-    result = scan_file(path, rules_dir=rules_dir, policy=policy)
+def scan_path(
+    path,
+    quarantine_dir,
+    rules_dir,
+    policy=None,
+    quarantine=False,
+    clamav=None,
+):
+    result = scan_file(path, rules_dir=rules_dir, policy=policy, clamav=clamav)
 
     if quarantine and result.get("verdict") in {"BLOCK", "QUARANTINE"}:
         source = Path(result.get("file_path", result.get("path", path)))
@@ -39,6 +47,16 @@ def build_parser():
     parser.add_argument("--report-dir", default=str(ROOT / "reports"))
     parser.add_argument("--rules-dir", default=str(ROOT / "rules"))
     parser.add_argument("--quarantine", action="store_true")
+    parser.add_argument(
+        "--clamav",
+        action="store_true",
+        help="Enable the optional ClamAV check (off unless configured)",
+    )
+    parser.add_argument(
+        "--clamav-config",
+        default=str(ROOT / "config.ini"),
+        help="Path to the ClamAV configuration file",
+    )
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -52,6 +70,11 @@ def main(argv=None):
     quarantine_dir = Path(args.quarantine_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    clamav = build_clamav_service(
+        Path(args.clamav_config),
+        enabled=True if args.clamav else None,
+    )
+
     results = []
     for path_value in args.paths:
         report = scan_path(
@@ -59,6 +82,7 @@ def main(argv=None):
             quarantine_dir,
             rules_dir,
             quarantine=args.quarantine,
+            clamav=clamav,
         )
         report_path = write_report(report, report_dir)
         if report_path:

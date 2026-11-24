@@ -1,0 +1,7 @@
+[clamav]
+enabled = false
+clamdscan_path =
+clamscan_path =
+prefer_daemon = true
+timeout_seconds = 60
+max_file_size_mb = 25

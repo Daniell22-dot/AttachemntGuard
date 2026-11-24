@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.clamav_service import build_clamav_service
 from core.quarantine_service import quarantine_file
 from core.report_writer import append_log, write_report
 from core.scan_history import init_db, record_scan
@@ -65,8 +66,13 @@ class MainWindow(QMainWindow):
         self.quarantine_label = QLabel(f"Quarantine: {QUARANTINE_DIR}")
         layout.addWidget(self.quarantine_label)
 
+        clamav = build_clamav_service(ROOT / "config.ini")
+        clamav_status = "enabled" if clamav is not None else "disabled (config.ini)"
+        self.clamav_label = QLabel(f"ClamAV: {clamav_status}")
+        layout.addWidget(self.clamav_label)
+
         self._watcher = None
-        self.scan_manager = ScanManager(self)
+        self.scan_manager = ScanManager(self, clamav=clamav)
         self.scan_manager.scan_started.connect(self._on_scan_started)
         self.scan_manager.scan_progress.connect(self._on_scan_progress)
         self.scan_manager.scan_finished.connect(self._on_scan_finished)

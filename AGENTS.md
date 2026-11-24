@@ -26,9 +26,12 @@ Both entry points are supported and share the same engine:
 - `scanner/` contains compatibility wrappers around `core/`; it must not
   implement a second scanning pipeline.
 - `README.md` is the user-facing documentation for both entry points.
-- ClamAV and YARA are optional: ClamAV is disabled unless a worker is given a
-  service, and YARA runs only when rule files are present. If an enabled check
-  cannot complete, result verdicts must fail closed.
+- ClamAV and YARA are optional checks. YARA runs only when rule files are
+  present. ClamAV is off by default and runs only when a service is injected
+  from `config.ini` (`enabled = true`), the GUI, or the CLI `--clamav` flag.
+  Both entry points share the `core/` merge logic. If an enabled check cannot
+  complete, verdicts fail closed: ClamAV detections yield `BLOCK`, while
+  errors, timeouts, and missing signature databases yield `QUARANTINE`.
 - Scan history is enabled for both entry points and stored outside tracked
   output directories.
 
@@ -72,13 +75,13 @@ Implement these before adding anything else:
 10. Write a JSON report for every scan.
 11. Display scan results in the GUI.
 12. Support safe cancellation and application shutdown.
+13. Optional ClamAV check, off by default and fail-closed.
 
 ### Later capabilities
 
 Do not implement these until the MVP is complete and tested:
 
-- YARA rule scanning.
-- ClamAV integration.
+- YARA rule scanning (implemented as an optional core check).
 - VirusTotal hash-only reputation lookup.
 - MalwareBazaar hash lookup.
 - Office macro and OLE-object detection.
@@ -96,6 +99,7 @@ attachmentguard/
 ├── main.py
 ├── AGENT.md
 ├── requirements.txt
+├── config.ini.example
 ├── .gitignore
 ├── ui/
 │   ├── main_window.py
@@ -106,6 +110,7 @@ attachmentguard/
 │   └── scan_manager.py
 ├── core/
 │   ├── scanner.py
+│   ├── clamav_service.py
 │   ├── hash_service.py
 │   ├── file_type_service.py
 │   ├── zip_inspector.py
@@ -266,7 +271,7 @@ Every file must pass through this ordered pipeline:
 4. Real file-type detection
 5. Archive inspection
 6. Static content indicators
-7. Optional reputation lookup
+7. Optional AV and reputation lookups
 8. Verdict decision
 9. Quarantine action
 10. Report generation
@@ -442,6 +447,29 @@ Log format:
 Never log API keys, full user profiles, email contents, or unrelated personal
 data.
 
+## ClamAV integration
+
+ClamAV is an optional static gate. It must never execute the scanned file.
+
+- Copy `config.ini.example` to `config.ini` and set `enabled = true`, or pass
+  `--clamav` to `cli.py`/`scanner/guard.py`. The GUI loads `config.ini` once at
+  startup and injects the service into the worker; no ClamAV subprocess runs in
+  the GUI thread.
+- Leave `clamdscan_path`/`clamscan_path` empty for automatic discovery on PATH
+  and in the standard Windows install directory. Prefer `clamdscan` and fall
+  back to `clamscan` when the daemon is unavailable.
+- The shared `core/scanner.py` pipeline runs the check and adds a `clamav`
+  object to the result with engine, exit code, verdict, signature, timeout, and
+  error details.
+- A detection adds `BLOCK`. Unavailable executables, timeouts, oversized files,
+  and inconclusive scans add `QUARANTINE` with an explainable reason. A local
+  `BLOCK` must never be downgraded by a clean ClamAV result.
+- Virus signatures must be installed separately with `freshclam`. A missing
+  database must be reported as "ClamAV signatures are missing; run freshclam
+  to update the virus database" and must fail closed.
+- `config.ini` is gitignored. Never commit local paths, credentials, or scan
+  output.
+
 ## YARA integration
 
 Add YARA only after the MVP passes tests.
@@ -534,6 +562,8 @@ Every external operation must handle:
 - Password-protected ZIP.
 - ZIP bomb.
 - YARA rule error.
+- ClamAV executable, signature database, or daemon unavailable.
+- ClamAV timeout or inconclusive result.
 - Network timeout.
 - Invalid API response.
 - Disk-full condition.
@@ -588,6 +618,15 @@ Required tests:
 - Corrupt ZIP returns `QUARANTINE`.
 - A source-code persistence fixture produces the expected indicator result.
 
+### ClamAV optional check
+
+- Disabled by default produces no ClamAV check.
+- A clean result does not downgrade a local verdict.
+- A detection produces `BLOCK` with a named signature.
+- Timeouts, missing databases, and unavailable executables produce
+  `QUARANTINE` with a human-readable reason.
+- The GUI worker and CLI both use the shared `core/` merge logic.
+
 ### Threading tests
 
 - Worker emits `finished` exactly once on success.
@@ -607,6 +646,7 @@ __pycache__/
 venv/
 .env
 *.log
+config.ini
 quarantine/*
 !quarantine/.gitkeep
 reports/*
@@ -674,8 +714,9 @@ Select folder
 → update PyQt table
 ```
 
-Do not add YARA, VirusTotal, ClamAV, or a C#/XAML interface until this MVP is
-complete, tested, and stable.
+Do not add VirusTotal, reputation lookups, or a C#/XAML interface until this
+MVP is complete, tested, and stable. YARA and ClamAV are optional core checks
+that stay off unless explicitly enabled.
 
 ## Test fixtures
 

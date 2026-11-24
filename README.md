@@ -33,11 +33,12 @@ Both entry points use the same `core/` engine, policy file, and report format.
 ### CLI / static gate
 
 ```bash
-python cli.py <file> [more-files...] [--quarantine] [--json]
-python scanner/guard.py <file> [--quarantine] [--json]
+python cli.py <file> [more-files...] [--quarantine] [--clamav] [--json]
+python scanner/guard.py <file> [--quarantine] [--clamav] [--json]
 ```
 
 - `--quarantine` moves `BLOCK`/`QUARANTINE` files into `quarantine/` with a UUID-based name and `.json` sidecar.
+- `--clamav` enables the optional ClamAV check for this run.
 - `--json` prints the scan results as JSON.
 - Reports are written to `reports/<yyyy-mm-dd>/<sha256>.json`.
 
@@ -59,10 +60,25 @@ Select a folder to monitor. New and existing files are scanned in a worker threa
 - Non-extracting ZIP inspection with entry-count, depth, double-extension, and compression-ratio checks
 - Persistence indicator scanning for `schtasks`, `/create`, `/sc onlogon`, `Environment.ProcessPath`, `%~f0`, `SENTINEL-Agent`, and `--run-agent`
 - Optional YARA rule scanning from `rules/`
-- Optional ClamAV scanning in the desktop worker
+- Optional ClamAV scanning in the shared core pipeline (GUI and CLI)
 - Quarantine, JSON reports, logs, and scan history
 
 If an enabled YARA, ZIP, or ClamAV check cannot complete, the result fails closed as `QUARANTINE` rather than `ALLOW`.
+
+## Optional ClamAV check
+
+ClamAV is installed separately from Python and is off by default. Enable it for
+one CLI run with `--clamav`, or for both entry points by copying
+`config.ini.example` to `config.ini` and setting `enabled = true`. Leave the two
+executable paths empty to auto-discover `clamdscan`/`clamscan` on PATH and in the
+standard Windows install directory; `clamdscan` is preferred, with `clamscan` as
+a fallback.
+
+Virus signatures must be installed separately with `freshclam`. Without them,
+the check fails closed with `QUARANTINE` and explains that signatures are
+missing. Detections produce `BLOCK`, and errors or timeouts produce `QUARANTINE`;
+a locally blocked file is never downgraded. `config.ini` is gitignored — never
+commit local paths or settings.
 
 ## Test Set
 
@@ -101,6 +117,7 @@ AttachmentGuard/
 ├── .gitignore
 ├── README.md
 ├── AGENTS.md
+├── config.ini.example
 └── requirements.txt
 ```
 

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .clamav_service import ClamAvUnavailable
 from .file_type_service import detect_extension_mismatch, sniff
 from .hash_service import file_info
 from .persistence_service import scan_file_binary_strings, scan_file_text
@@ -25,7 +26,39 @@ def _elevate(result: Dict[str, Any], verdict: str, reason: str = "") -> None:
         result["reasons"].append(reason)
 
 
-def scan_file(path, rules_dir: Optional[str] = None, policy: Optional[Dict] = None) -> Dict[str, Any]:
+def _apply_clamav(result: Dict[str, Any], clamav, path: Path) -> None:
+    try:
+        clamav_result = clamav.scan(path)
+    except ClamAvUnavailable as exc:
+        _elevate(result, "QUARANTINE", f"ClamAV unavailable: {exc}")
+        return
+    except Exception as exc:
+        _elevate(result, "QUARANTINE", f"ClamAV check failed: {type(exc).__name__}")
+        return
+
+    result["clamav"] = {
+        "engine": clamav_result.engine,
+        "exit_code": clamav_result.exit_code,
+        "verdict": clamav_result.verdict,
+        "signature": clamav_result.signature,
+        "timed_out": clamav_result.timed_out,
+        "error": clamav_result.error,
+    }
+
+    if clamav_result.verdict == "BLOCK":
+        signature = clamav_result.signature or "unknown signature"
+        _elevate(result, "BLOCK", f"ClamAV detected: {signature}")
+    elif clamav_result.verdict in ("QUARANTINE", "UNKNOWN"):
+        reason = clamav_result.error or "ClamAV scan failed, timed out, or was inconclusive"
+        _elevate(result, "QUARANTINE", reason)
+
+
+def scan_file(
+    path,
+    rules_dir: Optional[str] = None,
+    policy: Optional[Dict] = None,
+    clamav=None,
+) -> Dict[str, Any]:
     path = Path(path)
     policy = policy or load_policy()
     result = {
@@ -50,6 +83,7 @@ def scan_file(path, rules_dir: Optional[str] = None, policy: Optional[Dict] = No
         "persistence_hits": [],
         "zip_scan": {},
         "yara": [],
+        "clamav": {},
     }
 
     if not path.is_file():
@@ -121,5 +155,8 @@ def scan_file(path, rules_dir: Optional[str] = None, policy: Optional[Dict] = No
                 _elevate(result, "BLOCK", f"YARA match: {item['rule']} (severity={severity})")
             elif isinstance(item, dict) and item.get("error"):
                 _elevate(result, "QUARANTINE", f"YARA check failed: {item['error']}")
+
+    if clamav is not None:
+        _apply_clamav(result, clamav, path)
 
     return result

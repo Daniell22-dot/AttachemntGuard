@@ -12,18 +12,19 @@ class ScanManager(QObject):
     scan_failed = pyqtSignal(str, str)
     scan_cancelled = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, clamav=None):
         super().__init__(parent)
         self._thread = None
         self._worker = None
         self._current_file = ""
+        self.clamav = clamav
 
     def start_scan(self, file_path: str):
         self.stop()
 
         self._current_file = Path(file_path).name
         self._thread = QThread(self)
-        self._worker = ScanWorker(file_path)
+        self._worker = ScanWorker(file_path, clamav=self.clamav)
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
