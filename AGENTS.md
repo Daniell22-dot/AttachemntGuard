@@ -110,6 +110,7 @@ attachmentguard/
 │   └── dialogs.py
 ├── workers/
 │   ├── scan_worker.py
+│   ├── folder_scan_worker.py
 │   └── scan_manager.py
 ├── core/
 │   ├── scanner.py
@@ -264,6 +265,8 @@ class ScanManager(QObject):
 - Use a bounded queue or `QThreadPool` for many files; do not create unlimited
   threads.
 - On an old PC, limit concurrent scans to two workers initially.
+- Folder enumeration, quarantine moves, report/log writes, and history writes
+  must run in worker threads before `finished` reaches the UI.
 
 ## Scan pipeline
 

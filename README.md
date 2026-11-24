@@ -51,7 +51,7 @@ python cli.py --restore <uuid> [--restore-to PATH] [--overwrite] [--dry-run] [--
 python main.py
 ```
 
-Select a folder to monitor. New and existing files are scanned in a worker thread, shown in a table, quarantined when required, and recorded in the local scan history.
+Select a folder to monitor. Existing files and later changes are enumerated in a worker thread, queued, and scanned by at most two concurrent workers. Results appear in a table with verdict color highlighting, quarantine state, and an Open Report button or double-click action. Stop Monitoring cancels queued and active scans safely. Quarantine moves, report/log writes, and history writes finish in the worker thread before the UI is updated.
 
 ## Shared Engine
 
@@ -132,7 +132,8 @@ Tracked fixtures live in `tests/fixtures/`. Useful samples include:
 
 `AgentInstaller.cs` is an indicator sample (source code), not a compiled PE.
 Additional tests cover deobfuscation heuristics, ZIP member inspection,
-quarantine restore, and CLI restore output.
+quarantine restore, CLI restore output, GUI table/report actions, worker
+signals, cancellation, and manager cleanup.
 
 ## Usage From C#
 
